@@ -1,0 +1,128 @@
+---
+title: "Quantified Self Movement Data Analysis"
+author: "Ajani Gyasi"
+date: "December 26, 2015"
+output: html_document
+---
+
+##Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. Our goal for this project will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. We will use this information to predict their exercise results.
+
+
+##Library & Data Loads
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(corrplot)
+
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "./data/pml-training.csv"
+testFile  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile)
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile)
+}
+
+
+#Read in the data 
+trainRAW <- read.csv("./data/pml-training.csv")
+testRAW <- read.csv("./data/pml-testing.csv")
+
+dim(trainRAW)
+dim(testRAW)
+
+```
+
+The raw training data has 160 variables and 19,622 observations. The raw testing data also has 160 variables, but only 20 observations.
+
+
+###Data Cleanse
+Let's clear out the missing data
+```{r}
+trainRAW <- trainRAW[, colSums(is.na(trainRAW)) == 0]
+testRAW <- testRAW[, colSums(is.na(testRAW)) == 0]
+
+#Remove distracting columns in the data
+classe <- trainRAW$classe
+trainRM <- grepl("^X|timestamp|window", names(trainRAW))
+trainRAW <- trainRAW[, !trainRM]
+training <- trainRAW[, sapply(trainRAW, is.numeric)]
+training$classe <- classe 
+
+testRM <- grepl("^X|timestamp|window", names(testRAW))
+testRAW <- testRAW[, !testRM]
+testing <- testRAW[, sapply(testRAW, is.numeric)]
+
+dim(training)
+dim(testing)
+```
+
+The cleasned training & testing data sets both contain 53 variables with the same amount of observations as it did in the raw data sets.
+
+#Split Training data into Cross-Validation data set
+We will make a 70/30 split in our cleansed Training data set
+```{r}
+set.seed(666)
+inTrain <- createDataPartition(y=training$classe, p=0.70, list = F)
+trainData <- training[inTrain,]
+cvData <- training[-inTrain,]
+
+```
+
+
+##Modeling the Data
+The **Random Forest** will be our algorithm of choice to fit a predictive model due to its autonomy in variable selection and it will provide insight on correlated covariates and outliers. We will also use **5-fold cross validation** to resample.
+```{r}
+fiveFold <- trainControl(method = "cv", 5)
+modelRf <- train(classe ~., data = trainData, method = "rf", trControl = fiveFold, ntree = 250)
+modelRf
+```
+
+##Results
+Let's look at the performance of our model on the cross-validation data set.
+```{r}
+predictRF <- predict(modelRf, cvData)
+confusionMatrix(cvData$classe, predictRF)
+```
+
+
+```{r}
+accuracy <- postResample(predictRF, cvData$classe)
+accuracy
+```
+
+
+```{r}
+outofSE <- 1 - as.numeric(confusionMatrix(cvData$classe, predictRF)$overall[1])
+
+```
+
+Notice the estimated model accuracy is 99.30% and the estimated out-of-sample error is 0.75%.
+
+
+```{r}
+results <- predict(modelRf, testing[, -length(names(testing))])
+results
+```
+
+
+##Appendix: Figures
+Decision Tree Visualization
+```{r}
+tree <- rpart(classe ~., data = trainData, method = "class")
+prp(tree)
+```
+
+Correlation Matrix 
+```{r}
+corrPlot <- cor(trainData[, -length(names(trainData))])
+corrplot(corrPlot, method = "color")
+```
